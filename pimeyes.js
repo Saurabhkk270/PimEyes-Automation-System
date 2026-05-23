@@ -7,13 +7,25 @@ export class PimEyesAutomator {
         this.proxy = options.proxy || null;
         this.headless = options.headless !== false;
         this.timeout = options.timeout || 60000;
+        this.onLog = options.onLog || null;
         this.browser = null;
         this.context = null;
         this.page = null;
     }
 
+    log(message, chalkFn) {
+        if (chalkFn) {
+            console.log(chalkFn(message));
+        } else {
+            console.log(message);
+        }
+        if (this.onLog) {
+            this.onLog(message);
+        }
+    }
+
     async init() {
-        console.log(chalk.blue('Initializing Playwright browser...'));
+        this.log('Initializing Playwright browser...', chalk.blue);
         
         const launchOptions = {
             headless: this.headless,
@@ -26,7 +38,7 @@ export class PimEyesAutomator {
 
         // Configure proxy if provided (e.g., for HTTP Toolkit)
         if (this.proxy) {
-            console.log(chalk.cyan(`Configuring proxy: ${this.proxy}`));
+            this.log(`Configuring proxy: ${this.proxy}`, chalk.cyan);
             launchOptions.proxy = { server: this.proxy };
             // Ignore HTTPS errors if using a proxy like HTTP Toolkit without trusting its CA globally
             launchOptions.ignoreHTTPSErrors = true; 
@@ -45,26 +57,26 @@ export class PimEyesAutomator {
     }
 
     setupNetworkLogging() {
-        console.log(chalk.blue('Setting up network interception...'));
+        this.log('Setting up network interception...', chalk.blue);
         
         this.page.on('request', request => {
             const url = request.url();
             // Log interesting API requests
             if (url.includes('api.pimeyes.com') || url.includes('/api/')) {
-                console.log(chalk.yellow(`[API Request] ${request.method()} ${url}`));
+                this.log(`[API Request] ${request.method()} ${url}`, chalk.yellow);
             }
         });
 
         this.page.on('response', async response => {
             const url = response.url();
             if (url.includes('api.pimeyes.com/search') || url.includes('/api/search')) {
-                console.log(chalk.green(`[API Response] ${response.status()} ${url}`));
+                this.log(`[API Response] ${response.status()} ${url}`, chalk.green);
                 try {
                     // Try to parse JSON response if possible to extract hidden data
                     const contentType = response.headers()['content-type'] || '';
                     if (contentType.includes('application/json')) {
                         const json = await response.json();
-                        console.log(chalk.dim(`Response Snippet: ${JSON.stringify(json).substring(0, 150)}...`));
+                        this.log(`Response Snippet: ${JSON.stringify(json).substring(0, 150)}...`, chalk.dim);
                     }
                 } catch (e) {
                     // Ignore errors reading response body
@@ -76,22 +88,22 @@ export class PimEyesAutomator {
     async searchImage(imagePath) {
         if (!this.page) throw new Error("Browser not initialized. Call init() first.");
 
-        console.log(chalk.blue(`Navigating to PimEyes homepage...`));
+        this.log(`Navigating to PimEyes homepage...`, chalk.blue);
         await this.page.goto('https://pimeyes.com/en', { waitUntil: 'domcontentloaded', timeout: this.timeout });
 
         // Handle potential Cookie Consent
         try {
             const cookieButton = this.page.locator('button:has-text("Allow all"), button:has-text("Accept")').first();
             if (await cookieButton.isVisible({ timeout: 3000 })) {
-                console.log(chalk.gray('Accepting cookies...'));
+                this.log('Accepting cookies...', chalk.gray);
                 await cookieButton.click();
             }
         } catch (e) {
-            console.log(chalk.gray('No cookie banner found or timeout.'));
+            this.log('No cookie banner found or timeout.', chalk.gray);
         }
 
         // Upload the image
-        console.log(chalk.blue(`Uploading image: ${imagePath}`));
+        this.log(`Uploading image: ${imagePath}`, chalk.blue);
         const absoluteImagePath = path.resolve(imagePath);
         
         // PimEyes typically has a hidden file input. We locate it and set the files.
@@ -99,7 +111,7 @@ export class PimEyesAutomator {
         const fileInput = this.page.locator('#file-input');
         await fileInput.setInputFiles(absoluteImagePath);
 
-        console.log(chalk.blue('Waiting for upload and terms checkboxes to appear...'));
+        this.log('Waiting for upload and terms checkboxes to appear...', chalk.blue);
         
         // PimEyes requires accepting Terms of Service and Privacy Policy before searching
         // Wait for the checkboxes to become visible. They are usually part of a modal or slide-up panel after upload.
@@ -107,14 +119,14 @@ export class PimEyesAutomator {
         
         // We exclude cookiebot checkboxes to avoid trying to check 1300+ hidden boxes!
         const checkboxes = await this.page.locator('input[type="checkbox"]:not([class*="CybotCookiebot"]):not([id*="CybotCookiebot"])').all();
-        console.log(chalk.blue(`Found ${checkboxes.length} checkboxes. Checking them...`));
+        this.log(`Found ${checkboxes.length} checkboxes. Checking them...`, chalk.blue);
         for (const checkbox of checkboxes) {
             // Some checkboxes might be hidden by custom UI, so we force click
             await checkbox.check({ force: true });
         }
 
         // Click the Search/Start button
-        console.log(chalk.blue('Starting the search...'));
+        this.log('Starting the search...', chalk.blue);
         const searchBtn = this.page.locator('button:has-text("Start Search"), button:has-text("Search")').first();
         
         // Sometimes the search button needs to be enabled or might take a moment
@@ -122,27 +134,27 @@ export class PimEyesAutomator {
         await searchBtn.click();
 
         // Wait for results
-        console.log(chalk.blue('Waiting for search results... This might take a moment or encounter a Captcha.'));
+        this.log('Waiting for search results... This might take a moment or encounter a Captcha.', chalk.blue);
         
         // Check for potential captcha
         const captchaIframe = this.page.locator('iframe[src*="recaptcha"], iframe[src*="hcaptcha"]');
         if (await captchaIframe.count() > 0 && await captchaIframe.first().isVisible()) {
-            console.log(chalk.red.bold('\n[!] CAPTCHA DETECTED!'));
-            console.log(chalk.yellow('Please solve the captcha in the browser window to continue.'));
-            console.log(chalk.yellow('The script will wait for up to 60 seconds...'));
+            this.log('[!] CAPTCHA DETECTED!', chalk.red.bold);
+            this.log('Please solve the captcha in the browser window to continue.', chalk.yellow);
+            this.log('The script will wait for up to 60 seconds...', chalk.yellow);
         }
 
         // Wait for the results grid to load. We look for images or a specific results container.
         try {
             await this.page.waitForSelector('.results-grid, img[alt*="result"], .result-item', { timeout: 60000 });
-            console.log(chalk.green('\nSearch completed! Extracting results...'));
+            this.log('Search completed! Extracting results...', chalk.green);
             
             const results = await this.extractResults();
-            console.log(chalk.green(`Extracted ${results.length} result(s).`));
+            this.log(`Extracted ${results.length} result(s).`, chalk.green);
             return results;
         } catch (error) {
-            console.log(chalk.red('Failed to load results within timeout. Possibly blocked by Captcha, Paywall, or network error.'));
-            console.log(chalk.gray('Check the opened browser window to see the current state.'));
+            this.log('Failed to load results within timeout. Possibly blocked by Captcha, Paywall, or network error.', chalk.red);
+            this.log('Check the opened browser window to see the current state.', chalk.gray);
             throw error;
         }
     }
@@ -165,7 +177,7 @@ export class PimEyesAutomator {
 
     async close() {
         if (this.browser) {
-            console.log(chalk.gray('Closing browser...'));
+            this.log('Closing browser...', chalk.gray);
             await this.browser.close();
         }
     }
