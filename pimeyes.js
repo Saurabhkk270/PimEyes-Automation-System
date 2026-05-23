@@ -131,9 +131,8 @@ export class PimEyesAutomator {
 
         this.log('Waiting for upload and terms checkboxes to appear...', chalk.blue);
         
-        // PimEyes requires accepting Terms of Service and Privacy Policy before searching
-        // Wait for the checkboxes to become visible. They are usually part of a modal or slide-up panel after upload.
-        await this.page.waitForSelector('input[type="checkbox"]', { timeout: 15000 });
+        // Wait for the checkboxes to become attached to the DOM (they may be styled invisibly)
+        await this.page.waitForSelector('input[type="checkbox"]', { state: 'attached', timeout: 25000 });
         
         // We exclude cookiebot checkboxes to avoid trying to check 1300+ hidden boxes!
         const checkboxes = await this.page.locator('input[type="checkbox"]:not([class*="CybotCookiebot"]):not([id*="CybotCookiebot"])').all();
