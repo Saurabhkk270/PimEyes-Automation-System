@@ -51,6 +51,24 @@ export class PimEyesAutomator {
         });
 
         this.page = await this.context.newPage();
+
+        // Speed Optimization: Block heavy ad/analytics trackers that slow down load times on Render
+        await this.page.route('**/*', (route) => {
+            const url = route.request().url().toLowerCase();
+            if (
+                url.includes('analytics') || 
+                url.includes('tiktok') || 
+                url.includes('facebook') || 
+                url.includes('google-analytics') || 
+                url.includes('doubleclick') || 
+                url.includes('hotjar') ||
+                url.includes('cookiebot')
+            ) {
+                route.abort();
+            } else {
+                route.continue();
+            }
+        });
         
         // Setup Network Interception for analysis
         this.setupNetworkLogging();
@@ -96,7 +114,8 @@ export class PimEyesAutomator {
             const cookieButton = this.page.locator('button:has-text("Allow all"), button:has-text("Accept")').first();
             if (await cookieButton.isVisible({ timeout: 3000 })) {
                 this.log('Accepting cookies...', chalk.gray);
-                await cookieButton.click();
+                // click with low timeout and don't wait for post-navigation to prevent hangs
+                await cookieButton.click({ timeout: 4000, noWaitAfter: true }).catch(() => {});
             }
         } catch (e) {
             this.log('No cookie banner found or timeout.', chalk.gray);
@@ -106,9 +125,8 @@ export class PimEyesAutomator {
         this.log(`Uploading image: ${imagePath}`, chalk.blue);
         const absoluteImagePath = path.resolve(imagePath);
         
-        // PimEyes typically has a hidden file input. We locate it and set the files.
-        // We look for the main file input by its ID
-        const fileInput = this.page.locator('#file-input');
+        // Find the file input robustly (either by ID or fallback to standard file input)
+        const fileInput = this.page.locator('input[type="file"], #file-input').first();
         await fileInput.setInputFiles(absoluteImagePath);
 
         this.log('Waiting for upload and terms checkboxes to appear...', chalk.blue);
